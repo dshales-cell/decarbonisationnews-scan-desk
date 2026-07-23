@@ -81,7 +81,7 @@
    ============================================================ */
 const DATA_SOURCE = "https://docs.google.com/spreadsheets/d/1f8Cc6Oa1GIdFTzpjErlhbPd0YavA4jp9vppIom7Ep-s/gviz/tq?tqx=out:csv&sheet=Untitled";
 const REJECT_WEBHOOK = "https://hook.eu2.make.com/kue2sbx0df6vffx4ow1g8h55my4cgrfj";
-const GENERATE_WEBHOOK = "";
+const GENERATE_WEBHOOK = "https://hook.eu2.make.com/kuqa8p7rmqmry6ph9petdxi6k38b4ipg";
 
 /* Hide candidates older than this many days (matches the EVLife desk). */
 const MAX_AGE_DAYS = 7;
@@ -211,14 +211,9 @@ function generate(r){
   hiddenLocally.add(r.id||r.sheetRow);
   render();
   if(!GENERATE_WEBHOOK){ toast("Generate fired (demo). Set GENERATE_WEBHOOK to build live."); return; }
-  fetch(GENERATE_WEBHOOK, {
-    method:"POST", mode:"no-cors", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      row:r.sheetRow, id:r.id, section:r.section, headline:r.headline,
-      snippet:r.snippet, source_urls:r.source_urls, date_found:r.date_found, notes:r.notes
-    })
-  }).then(()=>toast("Sent to the generation pipeline."))
-    .catch(()=>toast("Generation webhook error."));
+  fetch(`${GENERATE_WEBHOOK}?row=${r.sheetRow}`, {mode:"no-cors"})
+    .then(()=>toast("Flagged for generation. The draft will appear on decarbonisation.news shortly."))
+    .catch(()=>toast("Flagged locally; sheet update may have failed."));
 }
 
 document.getElementById("refresh").onclick=loadRows;
