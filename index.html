@@ -27,7 +27,7 @@
   .bar{padding:16px 28px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;
     border-bottom:1px solid var(--line);background:var(--panel)}
   .chip{padding:6px 13px;border-radius:999px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--muted);font-size:13px}
+    background:var(--panel2);color:var(--muted);font-size:13px;cursor:pointer}
   .chip.active{color:var(--text);border-color:var(--accent);background:rgba(61,220,151,.10)}
   .chip .n{opacity:.6;margin-left:6px}
   .grid{padding:24px 28px;display:grid;gap:18px;
@@ -37,18 +37,14 @@
   .card .sec{font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--accent2)}
   .card h3{margin:0;font-size:16px;line-height:1.35}
   .card .snip{color:var(--muted);font-size:13.5px;flex:1}
-  .card .meta{display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted)}
+  .card .meta{display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap}
   .card .meta a{color:var(--accent2);text-decoration:none}
   .card .actions{display:flex;gap:8px;margin-top:4px}
-  .status{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line)}
-  .status.new{color:var(--accent2)}
-  .status.generating{color:var(--warn);border-color:var(--warn)}
-  .status.published{color:var(--accent);border-color:var(--accent)}
-  .status.rejected{color:var(--danger);border-color:var(--danger)}
   .empty{padding:60px 28px;text-align:center;color:var(--muted)}
   .config{padding:10px 28px;font-size:12px;color:var(--muted);background:var(--panel2);
     border-bottom:1px solid var(--line)}
   .config code{color:var(--accent2)}
+  .config.err{color:var(--danger)}
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
     background:var(--panel2);border:1px solid var(--accent2);padding:12px 18px;border-radius:10px;
     opacity:0;transition:opacity .3s;pointer-events:none}
@@ -59,13 +55,13 @@
 <header>
   <div>
     <h1>Decarbonisation News · Scan Desk</h1>
-    <div class="sub">Candidate stories from the daily scan. Click Generate to build the article and image.</div>
+    <div class="sub">Candidate stories from the daily scan. Generate builds the article and image. Reject removes it from the desk.</div>
   </div>
   <div class="spacer"></div>
   <button class="ghost" id="refresh">↻ Refresh</button>
 </header>
 
-<div class="config" id="configline"></div>
+<div class="config" id="configline">Loading…</div>
 
 <div class="bar" id="filters"></div>
 
@@ -75,59 +71,29 @@
 
 <script>
 /* ============================================================
-   CONFIG  —  wire these two to go live
+   CONFIG
    ------------------------------------------------------------
-   DATA_SOURCE : URL returning candidate rows.
-                 Accepts a Google Sheets "Publish to web" CSV link,
-                 or any JSON endpoint returning an array of rows.
-                 Leave "" to use the built-in sample data.
-   GENERATE_WEBHOOK : Make.com webhook URL. Clicking Generate POSTs
-                 the candidate row here to start article+image build.
+   DATA_SOURCE      : live CSV of the queue sheet (Google Sheets gviz).
+                      Requires the sheet be shared "Anyone with the link: Viewer".
+   REJECT_WEBHOOK   : Make webhook that marks a row removed (status column).
+   GENERATE_WEBHOOK : Make webhook that builds article + image (added at the
+                      generation step). Leave "" until then.
    ============================================================ */
-const DATA_SOURCE = "";
+const DATA_SOURCE = "https://docs.google.com/spreadsheets/d/1f8Cc6Oa1GIdFTzpjErlhbPd0YavA4jp9vppIom7Ep-s/gviz/tq?tqx=out:csv&sheet=Untitled";
+const REJECT_WEBHOOK = "https://hook.eu2.make.com/kue2sbx0df6vffx4ow1g8h55my4cgrfj";
 const GENERATE_WEBHOOK = "";
+
+/* Hide candidates older than this many days (matches the EVLife desk). */
+const MAX_AGE_DAYS = 7;
 
 const SECTIONS = [
   "AI for Decarbonisation","AI for Materials","Data",
   "Finance & Investment","Supply chain & operations","Technologies & innovation"
 ];
 
-/* Sample candidates so the desk is demonstrable before the scan is wired */
-const SAMPLE = [
-  {id:"s1",date_found:"2026-07-23",section:"Technologies & innovation",
-   headline:"Cement maker fires first full-scale kiln on hydrogen process heat",
-   snippet:"A European producer reports a pilot kiln running on hydrogen, targeting a cut in fuel-related emissions at one plant.",
-   source_urls:"https://example.com/a"},
-  {id:"s2",date_found:"2026-07-23",section:"Finance & Investment",
-   headline:"Transition fund closes at record size for heavy-industry projects",
-   snippet:"A new industrial transition fund reaches final close, earmarking capital for steel and chemicals decarbonisation.",
-   source_urls:"https://example.com/b"},
-  {id:"s3",date_found:"2026-07-23",section:"AI for Materials",
-   headline:"Model screens thousands of low-carbon cement blends in days",
-   snippet:"Researchers use a materials-discovery model to shortlist supplementary cementitious mixes for testing.",
-   source_urls:"https://example.com/c"},
-  {id:"s4",date_found:"2026-07-23",section:"Data",
-   headline:"New tracker maps CCS project pipeline against 2030 targets",
-   snippet:"An updated project tracker compiles announced capture capacity by sector and region.",
-   source_urls:"https://example.com/d"},
-  {id:"s5",date_found:"2026-07-23",section:"AI for Decarbonisation",
-   headline:"Steelworks cuts furnace energy use with control-system AI",
-   snippet:"A plant reports lower energy intensity after deploying an AI control layer on its furnaces.",
-   source_urls:"https://example.com/e"},
-  {id:"s6",date_found:"2026-07-23",section:"Supply chain & operations",
-   headline:"Manufacturer sets supplier decarbonisation targets across Scope 3",
-   snippet:"A large industrial buyer publishes supplier emissions requirements covering its highest-emitting inputs.",
-   source_urls:"https://example.com/f"}
-];
-
-const STORE_KEY = "scandesk_status_v1";
-let statusMap = {};
-try{ statusMap = JSON.parse(localStorage.getItem(STORE_KEY)||"{}"); }catch(e){}
-let rows = [];
+let rows = [];              // parsed candidates, each with a .sheetRow
 let activeSection = "All";
-
-function saveStatus(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(statusMap)); }catch(e){} }
-function statusOf(r){ return statusMap[r.id] || r.status || "new"; }
+const hiddenLocally = new Set();  // rows the user just rejected or generated this session
 
 function toast(msg){
   const t=document.getElementById("toast");
@@ -136,28 +102,34 @@ function toast(msg){
 }
 
 async function loadRows(){
-  document.getElementById("configline").innerHTML =
-    DATA_SOURCE
-      ? `Source: <code>${DATA_SOURCE}</code>`
-      : `Source: <code>built-in sample data</code> — set <code>DATA_SOURCE</code> in the file to read your live sheet.`;
-  if(!DATA_SOURCE){ rows = SAMPLE.slice(); render(); return; }
+  const cfg=document.getElementById("configline");
+  cfg.className="config"; cfg.textContent="Loading candidates from the queue sheet…";
   try{
-    const res = await fetch(DATA_SOURCE);
+    const res = await fetch(DATA_SOURCE, {cache:"no-store"});
     const text = await res.text();
-    rows = text.trim().startsWith("[") ? JSON.parse(text) : parseCSV(text);
+    rows = parseCSV(text);
+    cfg.innerHTML = `Live from the queue sheet · ${rows.filter(isNew).length} open candidate(s) · last loaded ${new Date().toLocaleTimeString()}`;
   }catch(e){
-    toast("Could not load source, showing sample."); rows = SAMPLE.slice();
+    rows = [];
+    cfg.className="config err";
+    cfg.textContent="Could not load the sheet. Confirm it is shared as ‘Anyone with the link: Viewer’.";
   }
   render();
 }
 
+/* Parse CSV. Header is sheet row 1, so data line i (1-based) is sheet row i+1. */
 function parseCSV(text){
-  const lines = text.trim().split(/\r?\n/);
+  const lines = text.replace(/\r/g,"").split("\n").filter(l=>l.length);
+  if(!lines.length) return [];
   const head = splitCSVLine(lines[0]).map(h=>h.trim());
-  return lines.slice(1).map(l=>{
-    const cells = splitCSVLine(l); const o={};
-    head.forEach((h,i)=>o[h]=(cells[i]||"").trim()); return o;
-  });
+  const out=[];
+  for(let i=1;i<lines.length;i++){
+    const cells = splitCSVLine(lines[i]); const o={};
+    head.forEach((h,idx)=>o[h]=(cells[idx]||"").trim());
+    o.sheetRow = i + 1;                 // header is row 1
+    if((o.id||o.headline)) out.push(o); // skip fully blank lines
+  }
+  return out;
 }
 function splitCSVLine(line){
   const out=[]; let cur=""; let q=false;
@@ -170,68 +142,83 @@ function splitCSVLine(line){
   out.push(cur); return out;
 }
 
+function statusOf(r){ return (r.status||"").trim().toLowerCase(); }
+function isNew(r){ const s=statusOf(r); return s===""||s==="new"; }
+function withinAge(r){
+  if(!r.date_found) return true;
+  const d = new Date(r.date_found);
+  if(isNaN(d)) return true;
+  return (Date.now() - d.getTime()) <= MAX_AGE_DAYS*86400000;
+}
+function visibleRows(){
+  return rows.filter(r=> isNew(r) && withinAge(r) && !hiddenLocally.has(r.id||r.sheetRow));
+}
+
 function render(){
   renderFilters();
   const grid=document.getElementById("grid");
-  const list = rows.filter(r=> activeSection==="All" || r.section===activeSection);
-  if(!list.length){ grid.innerHTML = `<div class="empty">No candidates in this section.</div>`; return; }
+  const list = visibleRows().filter(r=> activeSection==="All" || r.section===activeSection);
+  if(!list.length){ grid.innerHTML = `<div class="empty">No open candidates${activeSection==="All"?"":" in this section"}. New stories arrive with the daily scan.</div>`; return; }
   grid.innerHTML = list.map(cardHTML).join("");
   list.forEach(r=>{
-    const el=document.getElementById("gen-"+r.id);
-    if(el) el.onclick=()=>generate(r);
-    const rej=document.getElementById("rej-"+r.id);
-    if(rej) rej.onclick=()=>{ statusMap[r.id]="rejected"; saveStatus(); render(); };
+    const key = r.id||r.sheetRow;
+    const g=document.getElementById("gen-"+r.sheetRow); if(g) g.onclick=()=>generate(r);
+    const j=document.getElementById("rej-"+r.sheetRow); if(j) j.onclick=()=>reject(r);
   });
 }
 
 function renderFilters(){
-  const counts={All:rows.length};
-  SECTIONS.forEach(s=>counts[s]=rows.filter(r=>r.section===s).length);
+  const vis = visibleRows();
+  const counts={All:vis.length};
+  SECTIONS.forEach(s=>counts[s]=vis.filter(r=>r.section===s).length);
   const chips=["All",...SECTIONS].map(s=>
-    `<div class="chip ${s===activeSection?'active':''}" data-sec="${s}">${s}<span class="n">${counts[s]||0}</span></div>`
+    `<div class="chip ${s===activeSection?'active':''}" data-sec="${s.replace(/"/g,'&quot;')}">${s}<span class="n">${counts[s]||0}</span></div>`
   ).join("");
   const f=document.getElementById("filters"); f.innerHTML=chips;
   f.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{activeSection=c.dataset.sec;render();});
 }
 
 function cardHTML(r){
-  const st=statusOf(r);
   const src=(r.source_urls||"").split(",")[0].trim();
-  const canGen = st==="new";
+  const srcName=(r.notes||"").trim();
   return `<div class="card">
     <div class="sec">${r.section||""}</div>
-    <h3>${r.headline||"(untitled)"}</h3>
-    <div class="snip">${r.snippet||""}</div>
+    <h3>${escapeHtml(r.headline||"(untitled)")}</h3>
+    <div class="snip">${escapeHtml(r.snippet||"")}</div>
     <div class="meta">
-      <span class="status ${st}">${st}</span>
       ${src?`<a href="${src}" target="_blank" rel="noopener">source ↗</a>`:""}
+      ${srcName?`<span>${escapeHtml(srcName)}</span>`:""}
       <span>${r.date_found||""}</span>
     </div>
     <div class="actions">
-      <button class="primary" id="gen-${r.id}" ${canGen?"":"disabled style=opacity:.4;cursor:default"}>
-        ${st==="generating"?"Generating…":st==="published"?"Published":"Generate"}
-      </button>
-      ${canGen?`<button class="ghost danger" id="rej-${r.id}">Reject</button>`:""}
+      <button class="primary" id="gen-${r.sheetRow}">Generate</button>
+      <button class="ghost danger" id="rej-${r.sheetRow}">Reject</button>
     </div>
   </div>`;
 }
+function escapeHtml(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
-async function generate(r){
-  statusMap[r.id]="generating"; saveStatus(); render();
-  if(!GENERATE_WEBHOOK){
-    toast("Generate fired (demo). Set GENERATE_WEBHOOK to build live.");
-    return;
-  }
-  try{
-    await fetch(GENERATE_WEBHOOK,{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify(r)
-    });
-    toast("Sent to generation pipeline.");
-  }catch(e){
-    toast("Webhook error — check the URL.");
-    statusMap[r.id]="new"; saveStatus(); render();
-  }
+function reject(r){
+  hiddenLocally.add(r.id||r.sheetRow);
+  render();
+  if(!REJECT_WEBHOOK){ toast("Rejected locally (no webhook set)."); return; }
+  fetch(`${REJECT_WEBHOOK}?row=${r.sheetRow}`, {mode:"no-cors"})
+    .then(()=>toast("Rejected. Row marked removed in the sheet."))
+    .catch(()=>toast("Rejected locally; sheet update may have failed."));
+}
+
+function generate(r){
+  hiddenLocally.add(r.id||r.sheetRow);
+  render();
+  if(!GENERATE_WEBHOOK){ toast("Generate fired (demo). Set GENERATE_WEBHOOK to build live."); return; }
+  fetch(GENERATE_WEBHOOK, {
+    method:"POST", mode:"no-cors", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      row:r.sheetRow, id:r.id, section:r.section, headline:r.headline,
+      snippet:r.snippet, source_urls:r.source_urls, date_found:r.date_found, notes:r.notes
+    })
+  }).then(()=>toast("Sent to the generation pipeline."))
+    .catch(()=>toast("Generation webhook error."));
 }
 
 document.getElementById("refresh").onclick=loadRows;
