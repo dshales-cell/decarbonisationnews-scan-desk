@@ -75,11 +75,17 @@
    ------------------------------------------------------------
    DATA_SOURCE      : live CSV of the queue sheet (Google Sheets gviz).
                       Requires the sheet be shared "Anyone with the link: Viewer".
+                      &headers=1 is REQUIRED. Without it gviz guesses how many
+                      header rows there are and, once the sheet holds mixed
+                      value types, silently folds the first several data rows
+                      into a multi-row header. Those stories then vanish from
+                      the desk and every remaining sheetRow is off by the
+                      number swallowed, so clicks update the wrong row.
    REJECT_WEBHOOK   : Make webhook that marks a row removed (status column).
    GENERATE_WEBHOOK : Make webhook that builds article + image (added at the
                       generation step). Leave "" until then.
    ============================================================ */
-const DATA_SOURCE = "https://docs.google.com/spreadsheets/d/1f8Cc6Oa1GIdFTzpjErlhbPd0YavA4jp9vppIom7Ep-s/gviz/tq?tqx=out:csv&sheet=Untitled";
+const DATA_SOURCE = "https://docs.google.com/spreadsheets/d/1f8Cc6Oa1GIdFTzpjErlhbPd0YavA4jp9vppIom7Ep-s/gviz/tq?tqx=out:csv&sheet=Untitled&headers=1";
 const REJECT_WEBHOOK = "https://hook.eu2.make.com/kue2sbx0df6vffx4ow1g8h55my4cgrfj";
 const GENERATE_WEBHOOK = "https://hook.eu2.make.com/kuqa8p7rmqmry6ph9petdxi6k38b4ipg";
 
